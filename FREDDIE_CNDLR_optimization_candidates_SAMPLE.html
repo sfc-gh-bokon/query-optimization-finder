@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Query Optimization Candidates — ACME_ANALYTICS</title>
+<style>
+:root { --primary: #29B5E8; --dark: #11567F; --bg: #f8fafc; --card: #ffffff; --border: #e2e8f0; --text: #1e293b; --muted: #64748b; --green: #10b981; --red: #ef4444; --orange: #f59e0b; --purple: #8b5cf6; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
+.container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+header { background: linear-gradient(135deg, var(--dark), #1a6fa0); color: white; padding: 40px 0; margin-bottom: 32px; }
+header .container { display: flex; justify-content: space-between; align-items: center; }
+header h1 { font-size: 28px; font-weight: 700; }
+header .meta { text-align: right; font-size: 14px; opacity: 0.9; }
+.summary-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; margin-bottom: 32px; }
+.summary-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; text-align: center; }
+.summary-card .value { font-size: 28px; font-weight: 700; color: var(--dark); }
+.summary-card .label { font-size: 13px; color: var(--muted); margin-top: 4px; }
+.section-title { font-size: 22px; font-weight: 700; color: var(--dark); margin: 32px 0 16px; padding-bottom: 8px; border-bottom: 3px solid var(--primary); }
+.candidate-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin-bottom: 20px; position: relative; overflow: hidden; }
+.candidate-card::before { content: ''; position: absolute; top: 0; left: 0; width: 4px; height: 100%; }
+.candidate-card.high::before { background: var(--red); }
+.candidate-card.medium::before { background: var(--orange); }
+.candidate-card.low::before { background: var(--muted); }
+.card-header { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; }
+.rank-badge { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 18px; color: white; flex-shrink: 0; }
+.rank-1 { background: #f59e0b; } .rank-2 { background: #94a3b8; } .rank-3 { background: #b45309; }
+.rank-n { background: var(--dark); }
+.score-badge { background: var(--primary); color: white; padding: 4px 12px; border-radius: 20px; font-weight: 600; font-size: 14px; }
+.confidence-badge { padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; text-transform: uppercase; }
+.conf-high { background: #fef2f2; color: var(--red); border: 1px solid #fecaca; }
+.conf-medium { background: #fffbeb; color: #d97706; border: 1px solid #fde68a; }
+.conf-low { background: #f1f5f9; color: var(--muted); border: 1px solid var(--border); }
+.wh-badge { background: #f0f9ff; color: var(--dark); padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; border: 1px solid #bae6fd; }
+.trend-badge { padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+.trend-degrading { background: #fef2f2; color: var(--red); } .trend-stable { background: #fffbeb; color: #d97706; }
+.trend-intermittent { background: #faf5ff; color: var(--purple); } .trend-healthy { background: #f0fdf4; color: var(--green); }
+.pattern-snippet { font-family: 'SF Mono', Monaco, Consolas, monospace; font-size: 13px; background: #f1f5f9; padding: 12px 16px; border-radius: 8px; margin: 12px 0; color: var(--dark); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.metrics-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 12px 0; }
+.metric { text-align: center; }
+.metric .val { font-size: 18px; font-weight: 700; color: var(--dark); }
+.metric .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.signals { margin: 12px 0; }
+.signal-tag { display: inline-block; background: #fef2f2; color: var(--red); padding: 3px 10px; border-radius: 8px; font-size: 12px; margin: 2px 4px 2px 0; font-weight: 500; }
+.signal-tag.secondary { background: #fffbeb; color: #d97706; }
+.deep-dive { font-family: 'SF Mono', Monaco, Consolas, monospace; font-size: 12px; background: var(--dark); color: #93c5fd; padding: 10px 16px; border-radius: 8px; margin-top: 12px; cursor: pointer; position: relative; }
+.deep-dive:hover { background: #0c3d5a; }
+.deep-dive::after { content: '📋 click to copy'; position: absolute; right: 12px; top: 50%; transform: translateY(-50%); font-size: 11px; color: #94a3b8; font-family: -apple-system, sans-serif; }
+.savings { display: flex; gap: 16px; margin-top: 12px; align-items: center; }
+.savings .est { font-size: 14px; color: var(--green); font-weight: 600; }
+.heatmap-table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 16px 0; }
+.heatmap-table th { background: var(--dark); color: white; padding: 8px 6px; font-weight: 600; text-align: center; font-size: 11px; }
+.heatmap-table td { padding: 6px; text-align: center; border: 1px solid var(--border); }
+.heatmap-table tr:nth-child(even) { background: #f8fafc; }
+.heat-high { background: #fecaca !important; color: var(--red); font-weight: 700; }
+.heat-med { background: #fde68a !important; color: #92400e; font-weight: 600; }
+.heat-low { background: #d1fae5 !important; color: #065f46; }
+.hotspot-table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+.hotspot-table th { background: var(--dark); color: white; padding: 10px 12px; text-align: left; font-size: 13px; }
+.hotspot-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 13px; }
+.hotspot-table tr:hover { background: #f0f9ff; }
+footer { text-align: center; padding: 32px; color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+<div class="container">
+<div>
+<h1>Query Optimization Candidates</h1>
+<div style="margin-top:8px;opacity:0.85;">ACME_ANALYTICS &middot; Account ID: 1234567 &middot; Deployment: us-west-2</div>
+</div>
+<div class="meta">
+<div>Scan Period: 30 days</div>
+<div>Generated: March 25, 2026</div>
+<div>Powered by /query-optimization-finder</div>
+</div>
+</div>
+</header>
+
+<div class="container">
+
+<div class="summary-grid">
+<div class="summary-card"><div class="value">559</div><div class="label">Total Compute Minutes (Top 1)</div></div>
+<div class="summary-card"><div class="value">~55.8</div><div class="label">Est. Credits / 30d (Top 10)</div></div>
+<div class="summary-card"><div class="value">~25-40</div><div class="label">Potential Credit Savings</div></div>
+<div class="summary-card"><div class="value">5/10</div><div class="label">Broadcast Join Excess</div></div>
+<div class="summary-card"><div class="value">Medium</div><div class="label">Dominant WH Size</div></div>
+</div>
+
+<h2 class="section-title">Top 10 Optimization Candidates</h2>
+
+<!-- Candidate 1 -->
+<div class="candidate-card high">
+<div class="card-header">
+<div class="rank-badge rank-1">1</div>
+<div style="flex:1">
+<div style="font-weight:700;font-size:16px;">VW_JOB_HISTORY — MAX(dttm_lst_updt)</div>
+<div style="display:flex;gap:8px;margin-top:4px;flex-wrap:wrap;">
+<span class="score-badge">Score: 60</span>
+<span class="confidence-badge conf-high">HIGH</span>
+<span class="wh-badge">ETL_ADMIN_WH (Medium)</span>
+<span class="trend-badge trend-stable">STABLE-SLOW</span>
+</div>
+</div>
+</div>
+<div class="pattern-snippet">Select 'VW_JOB_HISTORY' as TABLE_NAME , max(dttm_lst_updt) as MAX_EDP From PROD_DB.STAGING.VW_JOB_HISTORY;</div>
+<div class="metrics-grid">
+<div class="metric"><div class="val">2</div><div class="lbl">Runs / 30d</div></div>
+<div class="metric"><div class="val">559.0</div><div class="lbl">Total Min</div></div>
+<div class="metric"><div class="val">279.5 / 289.0 / 290.0</div><div class="lbl">Avg / P95 / Max Min</div></div>
+<div class="metric"><div class="val">8.83 TB</div><div class="lbl">Scan Volume</div></div>
+</div>
+<div class="metrics-grid">
+<div class="metric"><div class="val">11,901 GB</div><div class="lbl">Total Spill</div></div>
+<div class="metric"><div class="val">3,385 GB</div><div class="lbl">Remote Spill</div></div>
+<div class="metric"><div class="val">37.3</div><div class="lbl">Est Credits / 30d</div></div>
+<div class="metric"><div class="val">7.5-22.4</div><div class="lbl">Est Credit Savings</div></div>
+</div>
+<div class="signals">
+<span class="signal-tag">Remote Spill: 1,717 GB (on Medium WH)</span>
+<span class="signal-tag">Heavy Spill: 4,321 GB local</span>
+<span class="signal-tag secondary">Scan Intensity: 15.6 GBPM</span>
+</div>
+<div class="savings"><span class="est">Estimated Reduction: 20-60% &middot; Recommendation: Size up warehouse or materialize view</span></div>
+<div class="deep-dive" onclick="navigator.clipboard.writeText(this.innerText.split('📋')[0].trim())">/query-performance-deep-dive Analyze query 01xxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx on account ACME_ANALYTICS</div>
+</div>
+
+<!-- Candidate 2 -->
+<div class="candidate-card medium">
+<div class="card-header">
+<div class="rank-badge rank-2">2</div>
+<div style="flex:1">
+<div style="font-weight:700;font-size:16px;">SVC_CALL_LOG JSON Payload Extraction</div>
+<div style="display:flex;gap:8px;margin-top:4px;flex-wrap:wrap;">
+<span class="score-badge">Score: 54</span>
+<span class="confidence-badge conf-medium">MEDIUM</span>
+<span class="wh-badge">ETL_ADMIN_WH (Medium)</span>
+<span class="trend-badge trend-degrading">DEGRADING</span>
+</div>
+</div>
+</div>
+<div class="pattern-snippet">select TEXT_SVC_CALL_LOG_JSON_PYLD:_id."$oid"::string as MongoId, TEXT_SVC_CALL_LOG_JSON_PYLD:date."$date"::timestamp...</div>
+<div class="metrics-grid">
+<div class="metric"><div class="val">52</div><div class="lbl">Runs / 30d</div></div>
+<div class="metric"><div class="val">105.6</div><div class="lbl">Total Min</div></div>
+<div class="metric"><div class="val">2.03 / 10.02 / 21.89</div><div class="lbl">Avg / P95 / Max Min</div></div>
+<div class="metric"><div class="val">7.03 TB</div><div class="lbl">Scan Volume</div></div>
+</div>
+<div class="metrics-grid">
+<div class="metric"><div class="val">0 GB</div><div class="lbl">Total Spill</div></div>
+<div class="metric"><div class="val">0 GB</div><div class="lbl">Remote Spill</div></div>
+<div class="metric"><div class="val">7.0</div><div class="lbl">Est Credits / 30d</div></div>
+<div class="metric"><div class="val">0.7-3.5</div><div class="lbl">Est Credit Savings</div></div>
+</div>
+<div class="signals">
+<span class="signal-tag">Degrading Trend: 2.33 min avg (latest) vs 0.76 min (prior) — 3x regression</span>
+<span class="signal-tag secondary">Intermittent: max 21.9 min &gt; 3x median</span>
+</div>
+<div class="savings"><span class="est">Estimated Reduction: 10-50% &middot; Investigate regression root cause</span></div>
+<div class="deep-dive" onclick="navigator.clipboard.writeText(this.innerText.split('📋')[0].trim())">/query-performance-deep-dive Analyze query 01xxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx on account ACME_ANALYTICS</div>
+</div>
+
+<!-- Candidate 3 -->
+<div class="candidate-card high">
+<div class="card-header">
+<div class="rank-badge rank-3">3</div>
+<div style="flex:1">
+<div style="font-weight:700;font-size:16px;">MATCH_MERGE_TXN_LINK — SELECT * LIMIT 100</div>
+<div style="display:flex;gap:8px;margin-top:4px;flex-wrap:wrap;">
+<span class="score-badge">Score: 49</span>
+<span class="confidence-badge conf-high">HIGH</span>
+<span class="wh-badge">ETL_ADMIN_WH (Medium)</span>
+<span class="trend-badge trend-stable">STABLE-SLOW</span>
+</div>
+</div>
+</div>
+<div class="pattern-snippet">select * from IDENTIFIER('"PROD_DB"."TXN_LINKING"."MATCH_MERGE_TXN_LINK"') limit 100</div>
+<div class="metrics-grid">
+<div class="metric"><div class="val">3</div><div class="lbl">Runs / 30d</div></div>
+<div class="metric"><div class="val">8.9</div><div class="lbl">Total Min</div></div>
+<div class="metric"><div class="val">2.97 / 3.42 / 3.49</div><div class="lbl">Avg / P95 / Max Min</div></div>
+<div class="metric"><div class="val">0.79 TB</div><div class="lbl">Scan Volume</div></div>
+</div>
+<div class="metrics-grid">
+<div class="metric"><div class="val">250 GB</div><div class="lbl">Total Spill</div></div>
+<div class="metric"><div class="val">0 GB</div><div class="lbl">Remote Spill</div></div>
+<div class="metric"><div class="val">0.6</div><div class="lbl">Est Credits / 30d</div></div>
+<div class="metric"><div class="val">0.3-0.5</div><div class="lbl">Est Credit Savings</div></div>
+</div>
+<div class="signals">
+<span class="signal-tag">Broadcast Excess: 13 joins on 270 GB scan</span>
+<span class="signal-tag">Expensive SELECT *: 270 GB scan for LIMIT 100</span>
+<span class="signal-tag secondary">Heavy Spill: 88 GB on single exec</span>
+</div>
+<div class="savings"><span class="est">Estimated Reduction: 50-90% &middot; Replace SELECT * with specific columns; add WHERE clause</span></div>
+<div class="deep-dive" onclick="navigator.clipboard.writeText(this.innerText.split('📋')[0].trim())">/query-performance-deep-dive Analyze query 01xxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx on account ACME_ANALYTICS</div>
+</div>
+
+<!-- Candidate 4 -->
+<div class="candidate-card medium">
+<div class="card-header">
+<div class="rank-badge rank-n">4</div>
+<div style="flex:1">
+<div style="font-weight:700;font-size:16px;">QC Record Sampling — Multi-table Join</div>
+<div style="display:flex;gap:8px;margin-top:4px;flex-wrap:wrap;">
+<span class="score-badge">Score: 43</span>
+<span class="confidence-badge conf-medium">MEDIUM</span>
+<span class="wh-badge">ETL_ADMIN_WH (Medium)</span>
+<span class="trend-badge trend-healthy">HEALTHY</span>
+</div>
+</div>
+</div>
+<div class="pattern-snippet">SELECT id_record_syst_gend, count(*) from (SELECT 202602 as DT_YR_MO, a.ID_REC_SYST as ID_RECORD_SYST_GEND...</div>
+<div class="metrics-grid">
+<div class="metric"><div class="val">18</div><div class="lbl">Runs / 30d</div></div>
+<div class="metric"><div class="val">12.2</div><div class="lbl">Total Min</div></div>
+<div class="metric"><div class="val">0.68 / 0.84 / 0.94</div><div class="lbl">Avg / P95 / Max Min</div></div>
+<div class="metric"><div class="val">1.10 TB</div><div class="lbl">Scan Volume</div></div>
+</div>
+<div class="signals">
+<span class="signal-tag">Broadcast Excess: 52 broadcast joins on 66 GB child scan</span>
+</div>
+<div class="savings"><span class="est">Estimated Reduction: 50-90% &middot; Collect temp table stats or rewrite joins</span></div>
+<div class="deep-dive" onclick="navigator.clipboard.writeText(this.innerText.split('📋')[0].trim())">/query-performance-deep-dive Analyze query 01xxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx on account ACME_ANALYTICS</div>
+</div>
+
+<!-- Candidate 5 -->
+<div class="candidate-card high">
+<div class="card-header">
+<div class="rank-badge rank-n">5</div>
+<div style="flex:1">
+<div style="font-weight:700;font-size:16px;">REQUEST_EXCEPTION_LOG — Transaction Matching</div>
+<div style="display:flex;gap:8px;margin-top:4px;flex-wrap:wrap;">
+<span class="score-badge">Score: 41</span>
+<span class="confidence-badge conf-high">HIGH</span>
+<span class="wh-badge">ETL_ADMIN_WH (Medium)</span>
+<span class="trend-badge trend-stable">STABLE-SLOW</span>
+</div>
+</div>
+</div>
+<div class="pattern-snippet">with REQUEST_EXCEPTION_LOG as (select rmd.dataRequestIdentifier as ID_RQST...</div>
+<div class="metrics-grid">
+<div class="metric"><div class="val">9</div><div class="lbl">Runs / 30d</div></div>
+<div class="metric"><div class="val">4.2</div><div class="lbl">Total Min</div></div>
+<div class="metric"><div class="val">0.47 / 0.67 / 0.70</div><div class="lbl">Avg / P95 / Max Min</div></div>
+<div class="metric"><div class="val">1.99 TB</div><div class="lbl">Scan Volume</div></div>
+</div>
+<div class="signals">
+<span class="signal-tag">Broadcast Excess: 27 joins on 263 GB scan</span>
+<span class="signal-tag">Scan Intensity: 378 GBPM</span>
+</div>
+<div class="savings"><span class="est">Estimated Reduction: 50-90% &middot; Temp table stats or materialized intermediate CTEs</span></div>
+<div class="deep-dive" onclick="navigator.clipboard.writeText(this.innerText.split('📋')[0].trim())">/query-performance-deep-dive Analyze query 01xxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx on account ACME_ANALYTICS</div>
+</div>
+
+<!-- Candidate 6 -->
+<div class="candidate-card high">
+<div class="card-header">
+<div class="rank-badge rank-n">6</div>
+<div style="flex:1">
+<div style="font-weight:700;font-size:16px;">Cost Category Analysis — Snowsight Dashboard</div>
+<div style="display:flex;gap:8px;margin-top:4px;flex-wrap:wrap;">
+<span class="score-badge">Score: 40</span>
+<span class="confidence-badge conf-high">HIGH</span>
+<span class="wh-badge">DEMO_WH (Medium)</span>
+<span class="trend-badge trend-stable">STABLE-SLOW</span>
+</div>
+</div>
+</div>
+<div class="pattern-snippet">SELECT "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"."ACCOUNT_NAME" AS "ACCOUNT_NAME", "BYTES_WRITTEN", "CLIENT_APPLICATION"...</div>
+<div class="metrics-grid">
+<div class="metric"><div class="val">2</div><div class="lbl">Runs / 30d</div></div>
+<div class="metric"><div class="val">8.9</div><div class="lbl">Total Min</div></div>
+<div class="metric"><div class="val">4.45 / 4.45 / 4.45</div><div class="lbl">Avg / P95 / Max Min</div></div>
+<div class="metric"><div class="val">0.89 TB</div><div class="lbl">Scan Volume</div></div>
+</div>
+<div class="signals">
+<span class="signal-tag">Broadcast Excess: 27 joins on 449 GB scan</span>
+<span class="signal-tag">Scan Intensity: 101 GBPM</span>
+</div>
+<div class="savings"><span class="est">Estimated Reduction: 50-90% &middot; Dashboard query — consider pre-aggregation or materialized view</span></div>
+<div class="deep-dive" onclick="navigator.clipboard.writeText(this.innerText.split('📋')[0].trim())">/query-performance-deep-dive Analyze query 01xxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx on account ACME_ANALYTICS</div>
+</div>
+
+<!-- Candidate 7 -->
+<div class="candidate-card medium">
+<div class="card-header">
+<div class="rank-badge rank-n">7</div>
+<div style="flex:1">
+<div style="font-weight:700;font-size:16px;">EVAL_REQUEST — Full Table Scan by transactionId</div>
+<div style="display:flex;gap:8px;margin-top:4px;flex-wrap:wrap;">
+<span class="score-badge">Score: 36</span>
+<span class="confidence-badge conf-medium">MEDIUM</span>
+<span class="wh-badge">ETL_ADMIN_WH (Medium)</span>
+<span class="trend-badge trend-stable">STABLE-SLOW</span>
+</div>
+</div>
+</div>
+<div class="pattern-snippet">select TEXT_EVAL_REQ_JSON_PYLD FROM PROD_DB.CORE.EVAL_REQUEST where TEXT_EVAL_REQ_JSON_PYLD:trxExecContext.transactionId::number='...'</div>
+<div class="metrics-grid">
+<div class="metric"><div class="val">1</div><div class="lbl">Runs / 30d</div></div>
+<div class="metric"><div class="val">39.0</div><div class="lbl">Total Min</div></div>
+<div class="metric"><div class="val">39.04 / 39.04 / 39.04</div><div class="lbl">Avg / P95 / Max Min</div></div>
+<div class="metric"><div class="val">4.51 TB</div><div class="lbl">Scan Volume</div></div>
+</div>
+<div class="signals">
+<span class="signal-tag">Scan Intensity: 118 GBPM — full 4.5TB table scan for single row lookup</span>
+</div>
+<div class="savings"><span class="est">Estimated Reduction: 10-50% &middot; Add search optimization or cluster key on transactionId</span></div>
+<div class="deep-dive" onclick="navigator.clipboard.writeText(this.innerText.split('📋')[0].trim())">/query-performance-deep-dive Analyze query 01xxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx on account ACME_ANALYTICS</div>
+</div>
+
+<!-- Candidate 8 -->
+<div class="candidate-card high">
+<div class="card-header">
+<div class="rank-badge rank-n">8</div>
+<div style="flex:1">
+<div style="font-weight:700;font-size:16px;">Document Not Found — Multi-CTE Join</div>
+<div style="display:flex;gap:8px;margin-top:4px;flex-wrap:wrap;">
+<span class="score-badge">Score: 35</span>
+<span class="confidence-badge conf-high">HIGH</span>
+<span class="wh-badge">ETL_ADMIN_WH (Medium)</span>
+<span class="trend-badge trend-stable">STABLE-SLOW</span>
+</div>
+</div>
+</div>
+<div class="pattern-snippet">WITH doc_not_found AS (select rmd.dataRequestIdentifier as ID_RQST, rmd.data...</div>
+<div class="metrics-grid">
+<div class="metric"><div class="val">4</div><div class="lbl">Runs / 30d</div></div>
+<div class="metric"><div class="val">1.6</div><div class="lbl">Total Min</div></div>
+<div class="metric"><div class="val">0.41 / 0.84 / 0.85</div><div class="lbl">Avg / P95 / Max Min</div></div>
+<div class="metric"><div class="val">0.91 TB</div><div class="lbl">Scan Volume</div></div>
+</div>
+<div class="signals">
+<span class="signal-tag">Broadcast Excess: 21 joins on 464 GB scan</span>
+<span class="signal-tag">Scan Intensity: 545 GBPM — highest in account</span>
+</div>
+<div class="savings"><span class="est">Estimated Reduction: 50-90% &middot; Collect stats on CTEs; consider temp tables</span></div>
+<div class="deep-dive" onclick="navigator.clipboard.writeText(this.innerText.split('📋')[0].trim())">/query-performance-deep-dive Analyze query 01xxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx on account ACME_ANALYTICS</div>
+</div>
+
+<!-- Candidate 9 -->
+<div class="candidate-card medium">
+<div class="card-header">
+<div class="rank-badge rank-n">9</div>
+<div style="flex:1">
+<div style="font-weight:700;font-size:16px;">event_time_travel — FLATTEN with Heavy Spill</div>
+<div style="display:flex;gap:8px;margin-top:4px;flex-wrap:wrap;">
+<span class="score-badge">Score: 34</span>
+<span class="confidence-badge conf-medium">MEDIUM</span>
+<span class="wh-badge">ETL_ADMIN_WH (Medium)</span>
+<span class="trend-badge trend-stable">STABLE-SLOW</span>
+</div>
+</div>
+</div>
+<div class="pattern-snippet">with base as (select id, document from app_db.events.event_time_travel as src, table(flatten(document:processedRecord...</div>
+<div class="metrics-grid">
+<div class="metric"><div class="val">1</div><div class="lbl">Runs / 30d</div></div>
+<div class="metric"><div class="val">90.8</div><div class="lbl">Total Min</div></div>
+<div class="metric"><div class="val">90.79 / 90.79 / 90.79</div><div class="lbl">Avg / P95 / Max Min</div></div>
+<div class="metric"><div class="val">0.04 TB</div><div class="lbl">Scan Volume</div></div>
+</div>
+<div class="signals">
+<span class="signal-tag">Heavy Spill: 306 GB on 45 GB scan (680% ratio)</span>
+<span class="signal-tag secondary">FLATTEN on VARIANT — row explosion likely</span>
+</div>
+<div class="savings"><span class="est">Estimated Reduction: 20-60% &middot; Size up WH or pre-flatten into materialized view</span></div>
+<div class="deep-dive" onclick="navigator.clipboard.writeText(this.innerText.split('📋')[0].trim())">/query-performance-deep-dive Analyze query 01xxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx on account ACME_ANALYTICS</div>
+</div>
+
+<!-- Candidate 10 -->
+<div class="candidate-card medium">
+<div class="card-header">
+<div class="rank-badge rank-n">10</div>
+<div style="flex:1">
+<div style="font-weight:700;font-size:16px;">SVC_CALL_LOG / PROPERTY_ADDR — UNION ALL Chain</div>
+<div style="display:flex;gap:8px;margin-top:4px;flex-wrap:wrap;">
+<span class="score-badge">Score: 34</span>
+<span class="confidence-badge conf-medium">MEDIUM</span>
+<span class="wh-badge">ETL_ADMIN_WH (Medium)</span>
+<span class="trend-badge trend-stable">STABLE-SLOW</span>
+</div>
+</div>
+</div>
+<div class="pattern-snippet">Select 'SVC_CALL_LOG_DET' as TBL, max(edptimestamp) as MAX_EDP From EVENTS_DB.CORE.SVC_CALL_LOG_DET union Select 'SVC_CALL_LOG'...</div>
+<div class="metrics-grid">
+<div class="metric"><div class="val">6</div><div class="lbl">Runs / 30d</div></div>
+<div class="metric"><div class="val">6.2</div><div class="lbl">Total Min</div></div>
+<div class="metric"><div class="val">1.04 / 1.31 / 1.31</div><div class="lbl">Avg / P95 / Max Min</div></div>
+<div class="metric"><div class="val">0.55 TB</div><div class="lbl">Scan Volume</div></div>
+</div>
+<div class="signals">
+<span class="signal-tag">UNION ALL Chain: Multiple full table scans via UNION</span>
+<span class="signal-tag secondary">Scan Intensity: 88 GBPM across unioned tables</span>
+</div>
+<div class="savings"><span class="est">Estimated Reduction: 40-90% &middot; Combine into single scan or use MAX_BY with unpivot</span></div>
+<div class="deep-dive" onclick="navigator.clipboard.writeText(this.innerText.split('📋')[0].trim())">/query-performance-deep-dive Analyze query 01xxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx on account ACME_ANALYTICS</div>
+</div>
+
+<!-- Signal Heatmap -->
+<h2 class="section-title">Signal Heatmap</h2>
+<table class="heatmap-table">
+<thead>
+<tr>
+<th>Candidate</th>
+<th>Remote Spill</th>
+<th>Heavy Spill</th>
+<th>Broadcast Excess</th>
+<th>High Scan Intensity</th>
+<th>SELECT *</th>
+<th>UNION ALL</th>
+<th>Degrading Trend</th>
+<th>Intermittent</th>
+</tr>
+</thead>
+<tbody>
+<tr><td>#1 VW_JOB_HISTORY</td><td class="heat-high">1,717 GB</td><td class="heat-high">4,321 GB</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td>#2 SVC_CALL_LOG JSON</td><td></td><td></td><td></td><td></td><td></td><td></td><td class="heat-high">3x</td><td class="heat-high">21.9 min</td></tr>
+<tr><td>#3 MATCH_MERGE_TXN</td><td></td><td class="heat-med">88 GB</td><td class="heat-high">13 / 270GB</td><td></td><td class="heat-high">270 GB</td><td></td><td></td><td></td></tr>
+<tr><td>#4 QC Record Sampling</td><td></td><td></td><td class="heat-high">52 / 66GB</td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td>#5 REQUEST_EXCEPTION</td><td></td><td></td><td class="heat-high">27 / 263GB</td><td class="heat-high">378</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>#6 Cost Category</td><td></td><td></td><td class="heat-high">27 / 449GB</td><td class="heat-med">101</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>#7 EVAL_REQUEST</td><td></td><td></td><td></td><td class="heat-high">118</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>#8 doc_not_found</td><td></td><td></td><td class="heat-high">21 / 464GB</td><td class="heat-high">545</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>#9 event_time_travel</td><td></td><td class="heat-high">306 GB</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td>#10 SVC_CALL UNION</td><td></td><td></td><td></td><td class="heat-med">88</td><td></td><td class="heat-high">3+ UNION</td><td></td><td></td></tr>
+</tbody>
+</table>
+
+<!-- Table Hotspot Summary -->
+<h2 class="section-title">Table Hotspot Summary</h2>
+<table class="hotspot-table">
+<thead>
+<tr><th>Table</th><th>Candidates Referencing</th><th>Total Scan TB</th><th>Suggestion</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>SVC_CALL_LOG / SVC_CALL_LOG_DET</strong></td><td>#2, #10, + 4 others</td><td>~8.1 TB</td><td>High-priority clustering candidate — JSON payload table scanned repeatedly. Consider clustering on edptimestamp.</td></tr>
+<tr><td><strong>EVAL_REQUEST</strong></td><td>#7, + 2 others</td><td>~7.1 TB</td><td>4.5 TB single-query scans. Add search optimization on transactionId or cluster on frequently filtered variant path.</td></tr>
+<tr><td><strong>MATCH_MERGE_TXN_LINK</strong></td><td>#3, + 3 others</td><td>~1.6 TB</td><td>Queried via SELECT * and joins. Cluster on record_identifier or record_date.</td></tr>
+<tr><td><strong>event_time_travel</strong></td><td>#9, + 4 others</td><td>~0.4 TB</td><td>Repeated FLATTEN operations on VARIANT causing spill. Consider materialized view for pre-flattened data.</td></tr>
+<tr><td><strong>REQUEST_EXCEPTION_LOG / TXN_LINK</strong></td><td>#5, #8, + 2 others</td><td>~1.5 TB</td><td>Common multi-CTE join pattern causing broadcast excess. Collect table stats or use temp tables.</td></tr>
+</tbody>
+</table>
+
+<!-- Aggregate Statistics -->
+<h2 class="section-title">Aggregate Statistics</h2>
+<div class="summary-grid">
+<div class="summary-card"><div class="value">837</div><div class="label">Total Compute Min (Top 10)</div></div>
+<div class="summary-card"><div class="value">~55.8</div><div class="label">Est Credits / 30d</div></div>
+<div class="summary-card"><div class="value">~25-40</div><div class="label">Potential Credit Savings</div></div>
+<div class="summary-card"><div class="value">Broadcast Excess</div><div class="label">Most Common Pattern</div></div>
+<div class="summary-card"><div class="value">ETL_ADMIN_WH<br><small>Medium (4 cr/hr)</small></div><div class="label">Primary Warehouse</div></div>
+</div>
+
+</div>
+
+<footer>
+Generated by /query-optimization-finder &middot; Cortex Code &middot; March 25, 2026<br>
+Account: ACME_ANALYTICS (1234567) &middot; Deployment: us-west-2 &middot; Scan window: 30 days
+</footer>
+
+</body>
+</html>
